@@ -1,0 +1,27 @@
+# Core Data Libraries
+pandas>=1.5.0
+numpy>=1.23.0
+
+# Financial Data
+yfinance>=0.2.0
+
+# Visualization
+matplotlib>=3.6.0
+seaborn>=0.12.0
+
+# Statistical Analysis
+scipy>=1.9.0
+
+# Jupyter for Interactive Analysis
+jupyter>=1.0.0
+notebook>=6.5.0
+
+# Optional: Performance Optimization
+numba>=0.56.0  # JIT compilation for speed
+
+# Optional: Progress Bars
+tqdm>=4.64.0
+
+# Optional: Better data handling
+openpyxl>=3.0.0  # Excel support
+xlrd>=2.0.0      # Excel support

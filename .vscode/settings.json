@@ -1,0 +1,4 @@
+{
+    "python.defaultInterpreterPath": "/opt/anaconda3/envs/momentum/bin/python",
+    "git.ignoreLimitWarning": true
+}
