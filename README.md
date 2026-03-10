@@ -228,4 +228,4 @@ The backtest assumes frictionless short selling with no borrowing cost. In pract
 
 > Asness, C. S., Moskowitz, T. J., & Pedersen, L. H. (2013). Value and Momentum Everywhere. *Journal of Finance*, 68(3), 929–985.
 
-The 12-1 month signal construction, equal-weighted long-short portfolio, and monthly rebalancing convention in this project follow the U.S. equity specification in AMP (2013).
+The 12-1 month signal construction, long-short portfolio, and monthly rebalancing convention in this project follow the U.S. equity specification in AMP (2013).
