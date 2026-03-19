@@ -70,7 +70,7 @@ python main.py
 This will:
 1. Download S&P 500 price and volume data (or load from cache)
 2. Validate and clean the data
-3. Calculate and normalise the momentum factor
+3. Calculate, normalize and remove sector impact on the factors
 4. Generate quantile signals and construct the long-short portfolio
 5. Download SPY benchmark and align return series
 6. Calculate all performance metrics vs benchmark
@@ -118,8 +118,8 @@ All strategy parameters live in `config.py`. Key parameters:
 | `N_QUANTILES` | `5` | Number of quantile buckets |
 | `LONG_QUANTILE` | `5` | Quantile to go long (top) |
 | `SHORT_QUANTILE` | `1` | Quantile to go short (bottom) |
-| `LONG_EXPOSURE` | `1.0` | Long leg gross exposure |
-| `SHORT_EXPOSURE` | `1.0` | Short leg gross exposure |
+| `LONG_EXPOSURE` | `1.3` | Long leg gross exposure |
+| `SHORT_EXPOSURE` | `0.3` | Short leg gross exposure |
 | `TRANSACTION_COST` | `0.001` | One-way transaction cost (10 bps) |
 | `REBALANCE_FREQ` | `"BM"` | Rebalance frequency (Business Month-end) |
 | `NORMALIZE_METHOD` | `"z-score"` | Factor normalisation method |
@@ -144,7 +144,7 @@ Computes the 12-1 momentum score for every stock on every date, following the si
 momentum_t = (price_{t-21} / price_{t-252}) - 1
 ```
 
-The 12-month lookback with a 1-month skip is the standard AMP (2013) specification: the skip avoids contamination from short-term reversal while capturing the intermediate-horizon continuation effect. The raw factor is winsorized (1st–99th percentile) then cross-sectionally z-score normalised.
+The 12-month lookback with a 1-month skip is the standard AMP (2013) specification: the skip avoids contamination from short-term reversal while capturing the intermediate-horizon continuation effect. The raw factor is winsorized (1st–99th percentile) then cross-sectionally z-score normalized.
 
 ### Step 4 — Portfolio Construction (`factor_engine.py`)
 Stocks are ranked into quintiles on each month-end rebalance date. The top quintile receives equal long weights summing to 100%; the bottom quintile receives equal short weights summing to −100%. Positions are held constant until the next rebalance. Transaction costs are deducted at each rebalance based on turnover.
