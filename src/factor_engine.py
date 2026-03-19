@@ -4,7 +4,7 @@ from config import *
 # from logger import get_logger
 
 
-class MomentumFactor:
+class FACTOR_ENGINE:
     """
     Momentum Factor Implementation
     
@@ -24,10 +24,11 @@ class MomentumFactor:
     - Normalize factors for cross-sectional comparison
     """
     
-    def __init__(self, 
-                 lookback=MOMENTUM_LOOKBACK, 
-                 skip_period=MOMENTUM_SKIP):
+    def __init__(self):
         """
+        To accomendate multi-factors construction, the paramters for momentum & skip period will
+        be moved to momentum parameters.
+
         Parameters:
         -----------
         lookback : int
@@ -35,12 +36,13 @@ class MomentumFactor:
         skip_period : int
             Period to skip from current date (default: 21 = 1 month)
         """
-        self.lookback = lookback
-        self.skip_period = skip_period
+        # self.lookback = lookback
+        # self.skip_period = skip_period
         # add validation logs for mid-calculation steps
         # self.logger = get_logger(__name__)
-        
-    def calculate_momentum(self, prices):
+        pass
+
+    def calculate_momentum(self, prices, skip_period=MOMENTUM_SKIP, lookback=MOMENTUM_LOOKBACK):
         """
         Calculate momentum factor using vectorized operations
         
@@ -65,15 +67,15 @@ class MomentumFactor:
         """
         
         print("\nCalculating Momentum Factor...")
-        print(f"Lookback period: {self.lookback} days ({self.lookback/21:.1f} months)")
-        print(f"Skip period: {self.skip_period} days ({self.skip_period/21:.1f} months)")
+        print(f"Lookback period: {lookback} days ({lookback/21:.1f} months)")
+        print(f"Skip period: {skip_period} days ({skip_period/21:.1f} months)")
         
         # Vectorized calculation
         # shift(skip_period) gets price from skip_period days ago
         # shift(lookback) gets price from lookback days ago
         
-        price_recent = prices.shift(self.skip_period)
-        price_old = prices.shift(self.lookback)
+        price_recent = prices.shift(skip_period)
+        price_old = prices.shift(lookback)
         momentum = (price_recent / price_old) - 1
 
         return momentum
@@ -89,6 +91,19 @@ class MomentumFactor:
         returns = prices.pct_change()
         volatility = returns.rolling(window=window).std() * np.sqrt(TRADING_DAYS_PER_YEAR)
         return volatility
+    
+    # add low_vol as a new factor
+    def calculate_low_vol(self, prices, window = LOW_VOL_WINDOW):
+        '''
+        Directly use the above rolling vol function to calculate low vol factor
+        '''
+        low_vol = self.calculate_rolling_volatility(prices, window)
+        return -low_vol
+    
+    # add short term reversal as a new factor
+    def calculate_short_term_reversal(self, prices, window = SHORT_TERM_REVERSAL):
+        reversal = - ((prices/ prices.shift(window)) - 1)
+        return reversal
     
     def winsorize_factor(self, factor, lower=0.01, upper=0.99):
         """
@@ -144,6 +159,78 @@ class MomentumFactor:
         
         return normalized
     
+    def sector_neutralize(self, factor, sector_map):
+        """
+        Remove industry bias by z-scoring within each GICS sector.
+ 
+        Parameters
+        ----------
+        factor     : pd.DataFrame  (dates and tickers)
+        sector_map : dict or pd.Series  {ticker into sector_string}
+ 
+        Returns
+        -------
+        neutralized : pd.DataFrame  same shape as factor
+        """
+        sectors    = pd.Series(sector_map)
+        neutralized = factor.copy()
+
+        for sector in sectors.unique():
+            tickers = sectors[sectors == sector].index.intersection(factor.columns)
+            if len(tickers) < 3:          # skip tiny sectors
+                continue
+            sec = factor[tickers]
+            sec_mean = sec.mean(axis=1)
+            sec_std  = sec.std(axis=1).replace(0, np.nan)
+            neutralized[tickers] = sec.sub(sec_mean, axis=0).div(sec_std, axis=0)
+ 
+        return neutralized
+    
+    
+    def process_factor(self, raw, method=NORMALIZE_METHOD,sector_map=None):
+        processed = self.normalize_factor(self.winsorize_factor(raw), method)
+        if sector_map is not None:
+            processed = self.sector_neutralize(processed, sector_map)
+        return processed
+    
+    
+    def combine_factors(self, prices, method = NORMALIZE_METHOD, sector_map=None):
+        '''
+        combine factors: each factors will be winsorized, normalized and assign weights
+        the weights can be assigned by equal weight or using machine learning: can be chosen in config.py
+        then the composite factors have to be normalize again
+        '''
+
+        # avoid for loop to shorten processing time
+        momentum_n = self.process_factor(self.calculate_momentum(prices), method, sector_map)
+        low_vol_n = self.process_factor(self.calculate_low_vol(prices), method, sector_map)
+        reversal_n = self.process_factor(self.calculate_short_term_reversal(prices), method, sector_map)
+
+        if FACTOR_EQUAL_WEIGHT:
+            weight = 1 / FACTOR_NUM
+            factor_weights = {i: weight for i in FACTOR_LIST}
+            
+        else:
+            pass # add ML logic for dynamic weight
+
+        composite = (factor_weights['momentum'] * momentum_n 
+        + factor_weights['low_vol'] * low_vol_n
+        + factor_weights['reversal'] * reversal_n)
+
+        composite = self.normalize_factor(composite, NORMALIZE_METHOD)
+        
+        total = sum(factor_weights.values())
+        print(f"\n  Weights in momentum: {factor_weights['momentum']/total:.1%}  "
+              f"low_vol: {factor_weights['low_vol']/total:.1%}  "
+              f"reversal: {factor_weights['reversal']/total:.1%}")
+ 
+        return composite, {
+            'momentum': momentum_n,
+            'low_vol':  low_vol_n,
+            'reversal': reversal_n,
+        }
+
+
     def generate_signals(self, factor, n_quantiles=N_QUANTILES):
         """
         Generate trading signals by ranking stocks into quantiles

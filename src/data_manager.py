@@ -1,6 +1,7 @@
 import yfinance as yf
 import pandas as pd
 import numpy as np
+import time
 from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings('ignore')
@@ -124,6 +125,73 @@ class DataManager:
         
         return all_data
     
+    # add sector mapping to improve IC volatiliy large
+    # only load sector data
+    def get_sector_mapping(self, tickers_to_fetch):
+
+        """
+        Fetch GICS sector for given tickers and save to cache.
+        Caller is responsible for determining which tickers need fetching.
+        """
+        sector_map = {}
+        failed = []
+        print(f"Fetching Sector information.........")
+
+        for i, ticker in enumerate(tickers_to_fetch):
+            try:
+                info = yf.Ticker(ticker).info
+                sector = info.get('sector', 'Unknown')
+                sector_map[ticker] = sector if sector else 'Unknown'
+            except Exception:
+                sector_map[ticker] = 'Unknown'
+                failed.append(ticker)
+            
+            if (i + 1) % 50 == 0:
+                print(f"  {i+1}/{len(tickers_to_fetch)} tickers processed...")
+                time.sleep(0.5)
+        
+        if failed:
+                print(f'Could not fetch {len(failed)} tickers and set the sectors to Unknown')
+
+
+        return pd.Series(sector_map)
+    
+    # helper method
+    def sector_mapping_caller(self, prices, cache_path=None):
+        if cache_path is None:
+            cache_path = os.path.join(DATA_DIR, 'sector_mapping.csv')
+        
+        all_tickers = list(prices.columns)
+        missing = []
+
+        if os.path.exists(cache_path):
+            existing = pd.read_csv(cache_path, index_col=0).squeeze()
+            print(f"Cache loaded: {len(existing)} tickers")
+            
+            print(f"Sample missing: {missing[:5]}")
+
+            for t in all_tickers:
+                if t not in existing.index:
+                    missing.append(t)
+
+            if missing:
+                print(f'print(f"Missing tickers: {len(missing)}")')
+
+        else:
+            new_sectors = self.get_sector_mapping(all_tickers)
+            new_sectors.to_csv(cache_path, header=True)
+            return new_sectors
+
+        if missing:
+            new_sectors = self.get_sector_mapping(missing)
+            sector_map_new = pd.concat([existing, new_sectors]).drop_duplicates()
+            sector_map_new.to_csv(cache_path, header=True)
+        else:
+            sector_map_new = existing
+
+        return sector_map_new
+        
+
     def check_data_quality(self, data, ticker):
         """
         Quality control checks for individual stock data

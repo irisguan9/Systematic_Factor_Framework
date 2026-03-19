@@ -7,9 +7,12 @@ warnings.filterwarnings('ignore')
 sys.path.append('./src')
 
 from src.data_manager import DataManager
-from src.factor_engine import MomentumFactor
+from src.factor_engine import FACTOR_ENGINE # change name to FACTORENGINE for multi-factor capability
 from src.performance_analyzer import PerformanceAnalyzer
 from src.visualizer import PerformanceVisualizer
+from src.data_validator import DataValidator
+from src.ml_factor_weighter import MLFactorWeighter
+
 from config import *
 
 import pandas as pd
@@ -37,25 +40,20 @@ def main():
     print("\n" + "="*70)
     print("STEP 1: DATA ACQUISITION & QUALITY CONTROL")
     print("="*70)
-    
     dm = DataManager(start_date=START_DATE, end_date=END_DATE)
     
     # Check if data already exists
     if os.path.exists(f'{DATA_DIR}/prices_adjusted.csv'):
         print("\nFound existing data. Loading from cache...")
-        prices = pd.read_csv(f'{DATA_DIR}/prices_adjusted.csv',
-                           index_col=0, parse_dates=True)
-        volumes = pd.read_csv(f'{DATA_DIR}/volumes.csv',
-                            index_col=0, parse_dates=True)
+        prices = pd.read_csv(f'{DATA_DIR}/prices_adjusted.csv',index_col=0, parse_dates=True)
+        volumes = pd.read_csv(f'{DATA_DIR}/volumes.csv',index_col=0, parse_dates=True)
         print(f"Loaded {prices.shape[0]} days x {prices.shape[1]} stocks")
     else:
         print("\nDownloading fresh data...")
         prices, volumes = dm.prepare_clean_data()
         dm.save_data()
-    
     # IMPORTANT: Validate data quality
     # Even cached data should be validated
-    from data_validator import DataValidator
     validator = DataValidator()
     prices = validator.validate_prices(prices, volumes)
     
@@ -70,24 +68,62 @@ def main():
     print("STEP 2: FACTOR CALCULATION")
     print("="*70)
     
-    momentum = MomentumFactor(
-        lookback=MOMENTUM_LOOKBACK,
-        skip_period=MOMENTUM_SKIP
-    )
-    
-    # Calculate momentum factor
-    momentum_factor = momentum.calculate_momentum(prices)
-    
-    print("Winsorizing extreme values (1st-99th percentile)...")
-    momentum_winsorized = momentum.winsorize_factor(momentum_factor)
+    factor_engine = FACTOR_ENGINE()
+    sector_map=None
+     # load sector mapping
+    if SECTOR_NEUTRAL:
+        sector_map = dm.sector_mapping_caller(prices)
 
-     # Normalize factor (z-score)
-    print("\nNormalizing factors (cross-sectional z-score)...")
-    momentum_normalized = momentum.normalize_factor(momentum_winsorized, method='z-score')
+    if not USE_MULTI_FACTOR: 
+         # Calculate momentum factor
+        signal_input = factor_engine.process_factor(factor_engine.calculate_momentum(prices), NORMALIZE_METHOD)
+        # signals = factor_engine.generate_signals(momentum_normalized, N_QUANTILES)
+
+    elif USE_MULTI_FACTOR and ML_SIGNAL_MODE == 'none': # equal weighted multi-factor
+        print(f"\nUSE multifactor models including {FACTOR_LIST}")
+        signal_input, individual_factors = factor_engine.combine_factors(prices, NORMALIZE_METHOD, sector_map)
+        # signals = factor_engine.generate_signals(composite, N_QUANTILES)
     
-    # Generate trading signals
-    signals = momentum.generate_signals(momentum_normalized, n_quantiles=N_QUANTILES)
+    elif USE_MULTI_FACTOR and ML_SIGNAL_MODE == 'ridge': # test ridge regression and its contribution to IC
+        print(f"\nUsing Ridge-weighted multi-factor: {FACTOR_LIST}")
+
+        momentum_n = factor_engine.process_factor(factor_engine.calculate_momentum(prices), NORMALIZE_METHOD, sector_map)
+        low_vol_n = factor_engine.process_factor(factor_engine.calculate_low_vol(prices), NORMALIZE_METHOD, sector_map)
+        reversal_n = factor_engine.process_factor(factor_engine.calculate_short_term_reversal(prices), NORMALIZE_METHOD, sector_map)
+        
+        individual_factors = {
+            'momentum': momentum_n,
+            'low_vol':  low_vol_n,
+            'reversal': reversal_n,
+        }
+ 
+        weighter = MLFactorWeighter(
+            min_train_periods      = 252,   # 1 year of history before first fit
+            refit_frequency        = 21,    # refit every ~1 month
+            forward_return_horizon = 21,    # predict 1-month-ahead cross-sectional returns
+        )
+ 
+        weight_history = weighter.fit_walk_forward(individual_factors, prices)
+        signal_input   = weighter.apply_weights(individual_factors)
+ 
+        print("\n--- Ridge Weight Diagnostics ---")
+        weighter.summary()
+ 
+        weight_fig = weighter.plot_weight_history()
+        if weight_fig is not None:
+            if not os.path.exists(RESULTS_DIR):
+                os.makedirs(RESULTS_DIR)
+            weight_fig.savefig(f'{RESULTS_DIR}/ridge_weight_history.png',
+                               dpi=300, bbox_inches='tight')
+            print(f"  Weight chart saved → {RESULTS_DIR}/ridge_weight_history.png")
+ 
+        weight_history.to_csv(f'{DATA_DIR}/ridge_weight_history.csv')
+        print(f"  Weight history saved → {DATA_DIR}/ridge_weight_history.csv")
     
+    elif USE_MULTI_FACTOR and ML_SIGNAL_MODE == 'xboost': # add xboost for future development
+        pass
+
+    signals = factor_engine.generate_signals(signal_input, N_QUANTILES)
     # =========================================================================
     # STEP 3: Long/short PORTFOLIO CONSTRUCTION
     # =========================================================================
@@ -95,12 +131,12 @@ def main():
     print("STEP 3: PORTFOLIO CONSTRUCTION")
     print("="*70)
     
-    portfolio_returns, positions = momentum.create_long_short_portfolio(
+    portfolio_returns, positions = factor_engine.create_long_short_portfolio(
         signals, prices,
         long_quantile=LONG_QUANTILE,
         short_quantile=SHORT_QUANTILE
     )
-    
+
     # =========================================================================
     # STEP 4: BENCHMARK DATA
     # =========================================================================
@@ -200,7 +236,7 @@ def main():
     print("="*70)
     
     # Save data
-    momentum_factor.to_csv(f'{DATA_DIR}/momentum_factor.csv')
+    signal_input.to_csv(f'{DATA_DIR}/signal_input.csv') # store the winsor & normalized factors
     signals.to_csv(f'{DATA_DIR}/signals.csv')
     positions.to_csv(f'{DATA_DIR}/positions.csv')
     aligned.to_csv(f'{DATA_DIR}/returns_aligned.csv')

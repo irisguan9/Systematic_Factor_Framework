@@ -9,10 +9,28 @@ MIN_PRICE = 5.0  # Filter out penny stocks
 MIN_VOLUME = 100000  # Minimum average daily volume
 MIN_DATA_DAYS = 252  # Minimum required data points (1 year)
 
-# Factor parameters
+# Use multi factor or single factor
+USE_MULTI_FACTOR = True
+FACTOR_EQUAL_WEIGHT = True 
+
+FACTOR_LIST = ['momentum', 'low_vol', 'reversal'] # need to update after adding new factors
+FACTOR_NUM = len(FACTOR_LIST)
+
+# Momentum Factor parameters
 MOMENTUM_LOOKBACK = 252  # 12 months
 MOMENTUM_SKIP = 21  # Skip last 1 month to avoid short-term reversal
+
+# LOW vol and revesal parameters
+LOW_VOL_WINDOW= 126
+SHORT_TERM_REVERSAL = 5
+
+# Machine learning to assign dynamic weights
+ML_SIGNAL_MODE = 'ridge' # none to turn off, xboost, ridge
+
 REBALANCE_FREQ = 'BM'  # Monthly rebalancing
+
+# Sector Neutralization
+SECTOR_NEUTRAL = True # True/ False
 
 # Portfolio construction parameters
 N_QUANTILES = 5

@@ -273,8 +273,8 @@ class PerformanceVisualizer:
         
         # 3. Rolling Sharpe
         ax3 = fig.add_subplot(gs[1, 1])
-        rolling_return = self.returns.rolling(252).mean() * TRADING_DAYS_PER_YEAR
-        rolling_vol = self.returns.rolling(252).std() * np.sqrt(TRADING_DAYS_PER_YEAR)
+        rolling_return = self.returns.rolling(TRADING_DAYS_PER_YEAR).mean() * TRADING_DAYS_PER_YEAR
+        rolling_vol = self.returns.rolling(TRADING_DAYS_PER_YEAR).std() * np.sqrt(TRADING_DAYS_PER_YEAR)
         rolling_sharpe = (rolling_return - RISK_FREE_RATE) / rolling_vol
         ax3.plot(rolling_sharpe.index, rolling_sharpe.values, linewidth=2, color='#2E86AB')
         ax3.axhline(y=1, color='green', linestyle='--', alpha=0.5)
